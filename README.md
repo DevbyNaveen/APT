@@ -1,306 +1,139 @@
-pip install --upgrade pip
+# APT — LLM Pre-Training Pipeline
+
+A production-grade pipeline for training large language models from scratch, built for long multi-day runs on A100 GPUs.
+
+APT handles everything between raw data and a trained checkpoint: curriculum learning, distributed training across multiple GPUs, mixed precision, TensorBoard logging, validation, and checkpoint recovery. Designed to run reliably for multi-day sessions targeting 3 billion tokens.
+
+---
+
+## What it does
+
+- Trains a decoder-only transformer (AnameeModel architecture) from scratch
+- Targets 3B tokens over 6 days at 500M tokens/day on A100 40GB
+- Curriculum learning: 60% easy data first, then 40% harder data
+- Supports single GPU and multi-GPU via DistributedDataParallel
+- Saves checkpoints every 100M tokens with full recovery support
+
+---
+
+## Architecture
+
+The model trained by APT:
+
+| Setting | Value |
+|---|---|
+| Embedding dimension | 640 |
+| Layers | 24 |
+| Query heads | 10 |
+| KV heads (GQA) | 4 |
+| Feed-forward dim | 2560 |
+| Context length | 2048 tokens |
+| Batch size | 64 per GPU |
+
+Uses Grouped Query Attention, RMSNorm, RoPE, and SwiGLU.
+
+---
+
+## Quick Start
+
+**Single GPU:**
+```bash
+git clone https://github.com/DevbyNaveen/APT
+cd APT
 pip install -r requirements.txt
+cp .env.example .env   # add your HF_TOKEN
+bash launch_training.sh
+```
 
+**Multi-GPU (DDP):**
+```bash
+torchrun --nproc_per_node=NUM_GPUS pretrain_ddp.py
+```
 
+---
 
-🚀 LLM Pre-Training Pipeline
-A full-featured, production-grade codebase for training Large Language Models (LLMs) from scratch, designed for reliability, cloud- or server-based runs, and maximum efficiency on big datasets.
+## Environment Setup
 
-📚 Table of Contents
-Overview
+Create a `.env` file:
+```
+HF_TOKEN=your_huggingface_token
+```
 
-Folder Structure
+Never commit this file. It is in `.gitignore`.
 
-Quick Start
+---
 
-Environment Setup
+## Configuration
 
-Dataset Preparation
+All settings are in `src/config.py`:
 
-Configuration
+```python
+TOTAL_TOKENS_TARGET = 3_000_000_000   # 3B total tokens
+DAILY_TOKEN_TARGET  = 500_000_000     # 500M per day
+LEARNING_RATE       = 3e-4
+BATCH_SIZE          = 64              # Per GPU
+BLOCK_SIZE          = 2048            # Context window
+EASY_TOKEN_TARGET   = 1_800_000_000   # 60% easy curriculum
+HARD_TOKEN_TARGET   = 1_200_000_000   # 40% hard curriculum
+```
 
-Training Workflow
+---
 
-Monitoring & Logging
+## Training Workflow
 
-Checkpoints & Recovery
+```bash
+# Start
+bash launch_training.sh
 
-Common Issues & Tips
-
-Best Practices
-
-FAQ
-
------------------------
-
-🧠 Overview
-This repository is for efficient, robust pre-training of LLMs using PyTorch, Hugging Face Transformers/Datasets, and distributed training.
-It features:
-
-Fast, streaming data pipeline with Hugging Face Datasets
-
-Persistent local caching to avoid API/rate-limit errors
-
-Curriculum learning (easy-to-hard)
-
-Mixed-precision (AMP) and distributed (DDP) support
-
-Safe, automatic checkpointing and resuming
-
-Real-time validation, progress bars, and TensorBoard logging
-
-RunPod/cloud friendly—works great on VS Code, Jupyter, or terminal
-
-----------------
-
-📁 Folder Structure
-
-llm_pretrain/
-├── data/               # (Optional) Local datasets, validation sets
-├── scripts/            # Utility scripts (preprocessing, evaluation, etc.)
-├── src/                # Source code (model, dataloader, train loop, etc.)
-│   ├── model.py
-│   ├── dataset.py
-│   ├── train.py
-│   ├── config.py
-│   ├── utils.py
-│   └── ...
-├── checkpoints/        # Model checkpoints (created automatically)
-├── runs/               # TensorBoard logs
-├── requirements.txt    # Python dependencies
-├── README.md           # This file
-└── .env                # (Hidden) Hugging Face token and custom variables
-
-
----------------
-
-🚀 Quick Start (RunPod or Local)
-
-1. Clone the repo & open in VS Code/Jupyter/Terminal
-
-git clone <your-repo-url>
-cd llm_pretrain
-
-
-2. [Optional but Recommended] Set up a Python virtual environment
-
-python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-3. Install dependencies
-
-pip install --upgrade pip
-pip install -r requirements.txt
-
-4. Prepare your Hugging Face token and cache
-Create a file named .env (never commit to GitHub!) and add:
-
-HF_TOKEN=hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-
-For best results and NO API 429 errors:
-
-Use a persistent storage volume for your cache (RunPod: create and mount one at /workspace/hf_cache)
-
-The code will automatically set cache paths—do not clear cache between runs.
-
-5. Edit config as needed
-
-Open src/config.py and set your batch size, block size, number of training steps, checkpoint interval, etc.
-
-Set your RESUME_PATH to resume from a checkpoint, or leave blank for new runs.
-
-----------------
-
-📦 Dataset Preparation
-Streaming from Hugging Face Datasets (default, recommended):
-
-No need to pre-download. The code streams and caches shards as needed.
-
-Change dataset/source in src/dataset.py.
-
-Local/Custom Data:
-
-Place files in data/ and adjust dataset.py as needed.
-
-Preprocessing utilities in scripts/ (optional).
-
--------------
-
-⚙️ Configuration
-Edit src/config.py:
-
-All main settings are at the top (batch, block size, learning rate, intervals, etc.)
-
-Model architecture in src/model.py.
-
-Comments explain every field.
-
-BATCH_SIZE = 16
-BLOCK_SIZE = 2048
-TOTAL_TRAINING_STEPS = 6104  # 100M tokens (adjust as needed)
-CHECKPOINT_INTERVAL = 3052   # Every 50M tokens
-RESUME_PATH = ""             # Set to resume from a checkpoint
-
-
--------------
-
-🏃 Training Workflow
-
-A. Activate environment
-
-source venv/bin/activate  # Or your conda env
-
-B. Launch training (single or multi-GPU):
-
-python src/train.py
-# or for DDP:
-torchrun --nproc_per_node=2 src/train.py
-
-
-Training logs appear in the terminal and are saved to TensorBoard (runs/).
-
-Checkpoints are auto-saved in checkpoints/ at your configured interval.
-
-C. Resume training after stop/restart:
-
-Upload your latest checkpoint to checkpoints/.
-
-Set RESUME_PATH in src/config.py to the filename (e.g. checkpoints/full_ckpt_step3052.pt).
-
-Re-launch training—script resumes automatically.
-
-D. Each day or segment:
-
-Download new checkpoint(s) from RunPod to your local machine for backup.
-
-Upload and resume as needed for multi-day or segmented training.
-
-
---------------------
-
-📊 Monitoring & Logging
-
-TensorBoard:
-
+# Monitor
 tensorboard --logdir=runs/
 
-Open the displayed URL in your browser.
+# Resume from checkpoint
+# Set RESUME_PATH in src/config.py to your checkpoint file, then relaunch
+```
 
-Console logs: Train/val loss, steps, and checkpoints.
+Checkpoints save automatically every 100M tokens to `checkpoints/`. Download them after each session if running on a cloud pod.
 
-Progress bars: Training and validation use TQDM for real-time progress.
+---
 
------------------
+## Project Structure
 
-💾 Checkpoints & Recovery
-Checkpoints saved automatically every N steps/tokens (see CHECKPOINT_INTERVAL in config).
+```
+APT/
+├── pretrain_ddp.py          # Main training script
+├── launch_training.sh       # Launch wrapper
+├── daily_train_3b.sh        # 6-day schedule
+├── comprehensive_test.py    # Test suite
+├── requirements.txt
+├── src/
+│   ├── config.py            # All hyperparameters
+│   ├── model.py             # AnameeModel architecture
+│   ├── dataset.py           # Curriculum dataset loader
+│   ├── validate.py          # Validation loop
+│   └── sample.py            # Text generation
+└── debug/
+    ├── oom_check.py         # Memory diagnostics
+    ├── loss_check.py        # Loss debugging
+    ├── grad_check.py        # Gradient health check
+    └── loader_check.py      # DataLoader diagnostics
+```
 
-Best practice: Download checkpoints after every session for backup.
+---
 
-To resume: Place checkpoint in checkpoints/, set RESUME_PATH in config, and restart training.
+## Common Issues
 
------------------
+**Out of memory:** Lower `BATCH_SIZE` or `BLOCK_SIZE` in `src/config.py`.
 
-⚠️ Common Issues & Tips
-Python Version: Use 3.10 or 3.11. Do not use 3.13+ (many ML libraries incompatible).
+**HuggingFace 429 rate limit:** Use a persistent cache directory. On RunPod, mount a storage volume at `/workspace/hf_cache`.
 
-CUDA Errors: Ensure your PyTorch and CUDA versions match your hardware. Use official wheels.
+**Resume not working:** Make sure `RESUME_PATH` in `src/config.py` points to the exact checkpoint filename.
 
-Out of Memory: Lower BATCH_SIZE or BLOCK_SIZE. Use nvidia-smi to monitor GPU usage.
+---
 
-Slow Download/Streaming: Use a persistent Hugging Face cache. If on RunPod, mount a Storage Volume at /workspace/hf_cache.
+## Requirements
 
-429 (Rate Limit from Hugging Face): Use persistent cache, limit number of concurrent workers, and never clear cache between runs. Your .env HF token is picked up automatically.
-
-Checkpoints/Storage Full: Periodically clean out old checkpoints and models from checkpoints/ and cache to avoid running out of disk space (see below for clean-up tips).
-
-----------------
-
-🌟 Best Practices
-Test with small configs before scaling up to large training runs.
-
-Always validate your dataset and data pipeline before long runs.
-
-Set up and monitor TensorBoard.
-
-Keep requirements and Python versions fixed for full reproducibility.
-
-Download and back up critical checkpoints after each session.
-
-
----------------
-
-🗑️ Cleaning Up Old Cache or Checkpoints
-
-f you’re low on space, in your RunPod (or local) terminal:
-
-# Check usage
-du -sh /workspace/hf_cache
-du -sh /workspace/checkpoints
-
-# Delete a specific model/dataset from cache
-rm -rf /workspace/hf_cache/models--UnneededModelName
-rm -rf /workspace/hf_cache/datasets/UnneededDatasetName
-
-# Delete old checkpoints (keep latest N)
-ls -tr /workspace/checkpoints | head -n -3 | xargs -I {} rm /workspace/checkpoints/{}
-
------------------
-
-❓ FAQ
-Q: What if my cache gets wiped after RunPod shutdown?
-A: Always download your checkpoints after each session. For best results, mount your HF cache to a persistent volume—otherwise, you will have to re-download data/models after every restart.
-
-Q: How do I avoid Hugging Face API rate limits (429)?
-A: Use a persistent cache, never clear it, and limit parallel workers. Your pipeline is set up for this already.
-
-Q: Can I safely stop and resume multi-day training?
-A: Yes! Just save/download your checkpoint, upload it next time, and set RESUME_PATH to resume.
-
-Q: Can I use more than 2 GPUs?
-A: Yes, code supports multi-GPU via DDP—adjust your torchrun command.
-
-Q: How can I monitor disk usage?
-A: In your pod terminal:
-df -h /workspace
-du -sh /workspace/hf_cache
-du -sh /workspace/checkpoints
-
-Q: Is my training quality affected by cache or resume?
-A: No, cache only affects download speed. Resuming from checkpoints is perfectly safe and preserves all optimizer/model state.
-
-------------------
-
-🤖 Techniques Used
-Distributed Data Parallel (DDP) training
-
-Mixed precision (AMP) with bfloat16/float16
-
-Streaming + sharded dataset support (curriculum)
-
-Automatic checkpointing & robust resume
-
-Persistent Hugging Face caching
-
-TensorBoard and console progress/logging
-
-Validation and sampling pipeline for monitoring
-
-Safe gradient clipping & OOM handling
-
-Supports Hugging Face tokens from .env
-
-
---------------------
-
-📝 Extra: Troubleshooting & Tips
-For "CUDA out of memory" errors: lower batch/block size, or check for memory leaks.
-
-For "429 Too Many Requests" errors: ensure persistent cache, fewer workers, single download per pod.
-
-For "File not found" on checkpoints: double-check paths and file uploads after pod restart.
-
-For debugging: use NUM_WORKERS=0 for streaming datasets, increase only for local datasets.
-
-
+- Python 3.10 or 3.11
+- PyTorch 2.0+ with CUDA
+- A100 40GB recommended
+- `transformers`, `tqdm`, `tensorboard`, `python-dotenv`
 
